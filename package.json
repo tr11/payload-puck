@@ -99,6 +99,7 @@
   "scripts": {
     "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks --tag dev",
     "generate-version": "node scripts/generate-version.js",
+    "prepare": "pnpm build",
     "build": "pnpm generate-version && pnpm build:swc && pnpm build:types && pnpm copyfiles",
     "build:swc": "swc ./src -d ./dist --strip-leading-paths",
     "build:types": "tsc --outDir dist",
