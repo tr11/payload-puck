@@ -1,6 +1,16 @@
 'use client'
 
-import { useState, useCallback, useMemo, useRef, type ReactNode, createElement, useEffect } from 'react'
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  type ReactNode,
+  createElement,
+  useEffect,
+  createContext,
+  useContext,
+} from 'react'
 import { useRouter } from 'next/navigation'
 import { Puck, type Config as PuckConfig, type Data, type DndConfig, type Plugin as PuckPlugin, type Overrides as PuckOverrides } from '@puckeditor/core'
 import { useLocale } from '@payloadcms/ui'
@@ -13,7 +23,7 @@ import './ai-plugin-overrides.css'
 
 import { Maximize2 } from 'lucide-react'
 import { HeaderActions } from './components/HeaderActions.js'
-import { IframeWrapper, type LayoutStyle } from './components/IframeWrapper.js'
+import { IframeWrapper, type IframeWrapperProps, type LayoutStyle } from './components/IframeWrapper.js'
 import { PreviewModal } from './components/PreviewModal.js'
 import { DarkModeStyles } from './components/DarkModeStyles.js'
 import { useUnsavedChanges } from './hooks/useUnsavedChanges.js'
@@ -72,6 +82,26 @@ const DEFAULT_VIEWPORTS = [
  * Puck still injects its own overlay styles into the frame independently.
  */
 const PUCK_IFRAME_CONFIG = { waitForStyles: true, syncHostStyles: false }
+
+type EditorIframeProps = Omit<IframeWrapperProps, 'children' | 'document'>
+
+const EditorIframeContext = createContext<EditorIframeProps>({})
+
+/**
+ * The `iframe` override. Module-level so its identity never changes: Puck
+ * renders `overrides.iframe` as a component type, so a new function (the
+ * `overrides` memo re-runs on the first edit, on every save, on dark-mode
+ * toggles) remounted the whole canvas - resetting its scroll to the top and
+ * re-gating it on stylesheet loads. Its props come from context instead.
+ */
+function EditorIframe({ children, document }: { children: ReactNode; document?: Document }) {
+  const props = useContext(EditorIframeContext)
+  return (
+    <IframeWrapper {...props} document={document}>
+      {children}
+    </IframeWrapper>
+  )
+}
 
 /**
  * Extended Data type to include our root props
@@ -746,19 +776,7 @@ export function PuckEditorImpl({
         </HeaderActions>
       ),
       // Always wrap iframe for richtext styles injection and theme-aware background
-      iframe: ({ children, document }: { children: ReactNode; document?: Document }) => (
-        <IframeWrapper
-          document={document}
-          layouts={layouts}
-          layoutStyles={layoutStyles}
-          layoutKey={layoutKey}
-          editorStylesheets={mergedEditorStylesheets}
-          editorCss={mergedEditorCss}
-          previewDarkModeOverride={showPreviewDarkModeToggle ? previewDarkMode : undefined}
-        >
-          {children}
-        </IframeWrapper>
-      ),
+      iframe: EditorIframe,
       // Merge custom overrides
       ...customOverrides,
     }),
@@ -779,12 +797,7 @@ export function PuckEditorImpl({
       headerActionsEnd,
       pageId,
       apiEndpoint,
-      layouts,
-      layoutStyles,
-      layoutKey,
       customOverrides,
-      mergedEditorStylesheets,
-      mergedEditorCss,
       canPublish,
       showPreviewDarkModeToggle,
       previewDarkMode,
@@ -941,8 +954,20 @@ export function PuckEditorImpl({
     return base
   }, [plugins, versionHistoryPlugin, aiPlugin, promptEditorPlugin, contextEditorPlugin])
 
+  const iframeProps = useMemo<EditorIframeProps>(
+    () => ({
+      layouts,
+      layoutStyles,
+      layoutKey,
+      editorStylesheets: mergedEditorStylesheets,
+      editorCss: mergedEditorCss,
+      previewDarkModeOverride: showPreviewDarkModeToggle ? previewDarkMode : undefined,
+    }),
+    [layouts, layoutStyles, layoutKey, mergedEditorStylesheets, mergedEditorCss, showPreviewDarkModeToggle, previewDarkMode],
+  )
+
   const editorContent = (
-    <>
+    <EditorIframeContext.Provider value={iframeProps}>
       {/* Dark mode CSS injection - automatically detects PayloadCMS dark mode */}
       {autoDetectDarkMode && <DarkModeStyles />}
       {/* Puck lays out its panels and auto-zooms the canvas against this box, so
@@ -976,7 +1001,7 @@ export function PuckEditorImpl({
         editorCss={mergedEditorCss}
         config={config}
       />
-    </>
+    </EditorIframeContext.Provider>
   )
 
   // Wrap with ThemeProvider if theme is provided
